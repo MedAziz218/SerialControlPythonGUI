@@ -4,7 +4,43 @@ import customtkinter
 from datetime import datetime
 import serial.tools.list_ports
 from backend import create_backend_thread, Interface
-import time
+from tkinter import filedialog
+import os 
+import json
+
+def save_to_json(data:dict,initial_dir:str|None =None):
+    if not initial_dir: initial_dir = os.getcwd()  # Get the current working directory
+    # file_path = filedialog.askopenfilename(initialdir=initial_dir)
+    filetypes = [("JSON files", "*.json"), ("All files", "*.*")]
+    file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=filetypes,initialdir=initial_dir)
+    print("Selected file:", file_path)
+    if file_path:
+        try:
+            with open(file_path, 'w') as json_file:
+                json.dump(data, json_file)
+            print("Data saved to:", file_path)
+        except Exception as e:
+            print("Error:", e)
+    return file_path
+
+def load_from_json(initial_dir:str|None =None):
+    # Ask the user to select a JSON file for loading
+    if not initial_dir: initial_dir = os.getcwd() 
+    filetypes = [("JSON files", "*.json"), ("All files", "*.*")]
+    file_path = filedialog.askopenfilename(filetypes=filetypes, initialdir=initial_dir)
+
+    if file_path:
+        try:
+            with open(file_path, 'r') as json_file:
+                data = json.load(json_file)
+                print("Data loaded from:", file_path)
+                # Do something with the loaded data, for example, print it
+                print(data)
+        except Exception as e:
+            print("Error:", e)
+    return data
+
+
 customtkinter.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
 customtkinter.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
 def isfloat(s):
@@ -41,8 +77,9 @@ class ItemSettings:
         settings["from"] = slider.cget("from_")
         settings["to"] = slider.cget("to")
         settings["number_of_steps"] = slider.cget("number_of_steps")
+        settings["value"] = entry.cget("textvariable").get()
         return settings
-    def set(self,settings):
+    def set(self,settings:dict):
         # settings = {"text":itemtext ,"from":0, "to":100, "number_of_steps":None }
         radiobutton,entry,slider = self.elements()
            
@@ -59,6 +96,10 @@ class ItemSettings:
             print(v)
             slider.stepsize = float(settings["step"]) if v else 0.1
             slider.configure(number_of_steps=v)
+        elif "number_of_steps" in settings:
+            slider.configure(number_of_steps=float(settings["number_of_steps"]))
+        if "value" in settings:
+            entry.cget("textvariable").set(settings['value'])
         return settings
    
 
@@ -113,7 +154,7 @@ class ScrollableRadiobuttonConfigFrame(customtkinter.CTkScrollableFrame):
             child.destroy()    
 class ScrollableRadiobuttonFrame(customtkinter.CTkScrollableFrame):
     send_message = None
-    def __init__(self, master, item_list, command=None, **kwargs):
+    def __init__(self, master, command=None, **kwargs):
         super().__init__(master, **kwargs)
         self.grid_columnconfigure(2, weight=1)
         self.grid_columnconfigure(1, weight=0)
@@ -124,12 +165,12 @@ class ScrollableRadiobuttonFrame(customtkinter.CTkScrollableFrame):
         
         self.radiobutton_list = {}
         self.selected_radio_button = None
-        for i, item in enumerate(item_list):
-            self.add_item(item)
-    
+        
+    def get(self):
+        return self.radiobutton_list
     def radio_button_command(self):
         val = int(self.radiobutton_variable.get())
-        self.command(self.radiobutton_list[val])
+        self.command(self.radiobutton_list[str(val)])
         print(f">> {self.radiobutton_variable.get()}")
     # def get_item_settings(self,key):
     #     # settings = {"text":itemtext ,"from":0, "to":100, "number_of_steps":None }
@@ -154,7 +195,7 @@ class ScrollableRadiobuttonFrame(customtkinter.CTkScrollableFrame):
     #         slider.configure(number_of_steps=settings["number_of_steps"])
     #     return settings
     
-    def add_item(self, itemtext=None, key=None)->ItemSettings:
+    def add_item(self,itemsettings:dict=None, itemtext=None, key=None)->ItemSettings:
         if not key:
             key = self.counter
         if key in self.radiobutton_list:
@@ -214,10 +255,12 @@ class ScrollableRadiobuttonFrame(customtkinter.CTkScrollableFrame):
         entry.grid(row=row, column=1, padx=(0, 0), pady=(5, 5), sticky="nsew")
         slider.grid(row=row, column=2, padx=(0, 10), pady=(10, 10), sticky="nsew" )
         def destroy():
-            del self.radiobutton_list[key]
+            del self.radiobutton_list[str(key)]
 
         setting = ItemSettings(radiobutton,entry,slider,destroy_method=destroy)
-        self.radiobutton_list[key] = setting
+        self.radiobutton_list[str(key)] = setting
+        if itemsettings:
+            setting.set(itemsettings)
         
        
         
@@ -253,12 +296,12 @@ class App(customtkinter.CTk):
     def connect_callback(self):
         port = self.COM_optionemenu_var.get()
         baudrate = self.Baudrate_optionemenu_var.get()
-        self.show_message(f"Connecting to {port}...","info")
         if not port.startswith("COM"):
             return self.show_message("Select COM port first","error")
         
         if self.backend_interface.thread :
             return self.show_message("Disconnect first","error")
+        self.show_message(f"Connecting to {port}...","info")
         self.backend_interface.connect(port,baudrate)
 
     def disconnect_callback(self):    
@@ -285,9 +328,7 @@ class App(customtkinter.CTk):
         
         # create scrollable radiobutton frame
         func = lambda x :self.scrollable_frame.set_selected(x)
-        self.scrollable_radiobutton_frame = ScrollableRadiobuttonFrame(master=self, command= func,
-                                                                       item_list=[],
-                                                                       label_text="items list")
+        self.scrollable_radiobutton_frame = ScrollableRadiobuttonFrame(master=self, command= func,label_text="items list")
         self.scrollable_radiobutton_frame.send_message = self.send_message
         self.scrollable_radiobutton_frame.grid(row=0, column=1,columnspan=2,rowspan=2,padx=(20,0), pady=(10, 0), sticky="nsew")
         self.scrollable_radiobutton_frame.remove_item("item 3")
@@ -298,27 +339,27 @@ class App(customtkinter.CTk):
         self.logo_label = customtkinter.CTkLabel(self.sidebar_frame, text="SerialControl", font=customtkinter.CTkFont(size=20, weight="bold"))
         self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
         #connect button
-        self.sidebar_button_1 = customtkinter.CTkButton(self.sidebar_frame, command=self.sidebar_button_event,text="Connect")
+        self.sidebar_button_1 = customtkinter.CTkButton(self.sidebar_frame,text="Connect")
         self.sidebar_button_1.configure(command = self.connect_callback)
         self.sidebar_button_1.grid(row=1, column=0, padx=20, pady=10)
         #disconnect button
-        self.sidebar_button_2 = customtkinter.CTkButton(self.sidebar_frame, command=self.sidebar_button_event,text="Disconnect")
+        self.sidebar_button_2 = customtkinter.CTkButton(self.sidebar_frame,text="Disconnect")
         self.sidebar_button_2.configure(command = self.disconnect_callback)
         self.sidebar_button_2.grid(row=2, column=0, padx=20, pady=10)
         #add slider button
-        self.sidebar_button_3 = customtkinter.CTkButton(self.sidebar_frame, command=self.sidebar_button_event,text="add item")
+        self.sidebar_button_3 = customtkinter.CTkButton(self.sidebar_frame,text="add item")
         self.sidebar_button_3.configure(command = self.scrollable_radiobutton_frame.add_item)
         self.sidebar_button_3.grid(row=3, column=0, padx=20, pady=10)
         #save Profile button
-        self.sidebar_button_4 = customtkinter.CTkButton(self.sidebar_frame, command=self.sidebar_button_event,text="Save Profile")
-        self.sidebar_button_4.configure(command = self.scrollable_radiobutton_frame.add_item)
+        self.sidebar_button_4 = customtkinter.CTkButton(self.sidebar_frame,text="Save Profile")
+        self.sidebar_button_4.configure(command = self.save_profile_callback)
         self.sidebar_button_4.grid(row=4, column=0, padx=20, pady=10)
         #load Profile button
-        self.sidebar_button_5 = customtkinter.CTkButton(self.sidebar_frame, command=self.sidebar_button_event,text="Load Profile")
-        self.sidebar_button_5.configure(command = self.scrollable_radiobutton_frame.add_item)
+        self.sidebar_button_5 = customtkinter.CTkButton(self.sidebar_frame,text="Load Profile")
+        self.sidebar_button_5.configure(command = self.load_profile_callback)
         self.sidebar_button_5.grid(row=5, column=0, padx=20, pady=10)
         #clear terminal button
-        self.sidebar_button_6 = customtkinter.CTkButton(self.sidebar_frame, command=self.sidebar_button_event,text="Clear terminal")
+        self.sidebar_button_6 = customtkinter.CTkButton(self.sidebar_frame,text="Clear terminal")
         self.sidebar_button_6.configure(command = self.clear_textbox)
         self.sidebar_button_6.grid(row=6, column=0, padx=20, pady=10)
         
@@ -422,6 +463,17 @@ class App(customtkinter.CTk):
 
         # self.test_button = customtkinter.CTkButton(master=self, fg_color="transparent", border_width=2, text_color=("gray10", "#DCE4EE"))
         # self.test_button.grid(row=0, column=3, padx=(20, 20), pady=(20, 20), sticky="nsew")
+    def save_profile_callback(self):
+        data = {"items":[]}
+        s = self.scrollable_radiobutton_frame.get()
+        for k in s :
+            data['items'].append(s[k].get())            
+        save_to_json(data)
+
+    def load_profile_callback(self):
+        data = load_from_json()
+        for item in data['items']:
+            self.scrollable_radiobutton_frame.add_item(item)
 
     def show_message(self,message,tag="info"):
         timestamp = get_formatted_subsecond_timestamp()
