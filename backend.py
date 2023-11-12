@@ -82,12 +82,20 @@ def backend_mainloop(interface: Interface):
     print("Start")
     port = interface.COM_port.strip()  # This will be different for various devices and on windows it will probably be a COM port.
     baudrate = interface.baudrate
-    bluetooth = serial.Serial(
-        port, baudrate
-    )  # Start communications with the bluetooth unit
+    connected = False
+    try:
+        bluetooth = serial.Serial(
+            port, baudrate
+        )  # Start communications with the bluetooth unit
+        bluetooth.flushInput()  # This gives the bluetooth a little kick
+        connected = True
+    except:
+        interface.on_error("Could not Connect")
+        interface.thread = None    
+    if not connected :return
+
     print("Connected")
     interface.on_connected()
-    bluetooth.flushInput()  # This gives the bluetooth a little kick
     interface.running = True
 
     def close():

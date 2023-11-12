@@ -54,12 +54,28 @@ def get_formatted_subsecond_timestamp():
     timestamp = datetime.now()
     formatted_timestamp = timestamp.strftime("%H:%M:%S.%f")[:-3]
     return formatted_timestamp
+def center_window(window, width, height):
+    screen_width = window.winfo_screenwidth()
+    screen_height = window.winfo_screenheight()
+
+    x = (screen_width - width) // 2
+    y = (screen_height - height) // 2
+
+    window.geometry(f"{width}x{height}+{x}+{y}")
+
 class ItemSettings:
     def __init__(self,radiobutton,entry,slider,destroy_method=None) -> None:
         self.radiobutton=radiobutton
         self.entry = entry
         self.slider = slider
         self.destroy_method = destroy_method
+    def get_cmd(self):
+        radiobutton,entry,slider = self.elements()
+        key = radiobutton.cget('text')
+        val = entry.cget('textvariable').get()
+        sep = '-'
+        cmd = f'{key}{sep}{val};'
+        return cmd
     def destroy(self):
         radiobutton,entry,slider = self.elements()
         entry.destroy()
@@ -97,7 +113,12 @@ class ItemSettings:
             slider.stepsize = float(settings["step"]) if v else 0.1
             slider.configure(number_of_steps=v)
         elif "number_of_steps" in settings:
-            slider.configure(number_of_steps=float(settings["number_of_steps"]))
+            x = str(settings["number_of_steps"])
+            if x and x.lower()!= "none":
+                x = float(settings["number_of_steps"])
+            else :
+                x=None
+            slider.configure(number_of_steps=x)
         if "value" in settings:
             entry.cget("textvariable").set(settings['value'])
         return settings
@@ -234,10 +255,7 @@ class ScrollableRadiobuttonFrame(customtkinter.CTkScrollableFrame):
             # entry_command()
 
         def send(*args):
-            key = radiobutton.cget('text')
-            val = entry_var.get()
-            sep = '-'
-            cmd = f'{key}{sep}{val};'
+            cmd = setting.get_cmd()
             self.send_message(cmd)
         
         slider.bind("<ButtonRelease-1>",send)
@@ -317,14 +335,16 @@ class App(customtkinter.CTk):
         self.protocol("WM_DELETE_WINDOW", self.on_quit)
         # configure window
         self.title("SerialControl")
-        self.geometry(f"{1100}x{580}")  
+        # self.geometry(f"{1100}x{600}")  
+        center_window(self,1100,600)
         # configure grid layout (4x4)
+        
         self.grid_columnconfigure(1, weight=1)
         self.grid_columnconfigure((2, 3), weight=0)
-        self.grid_rowconfigure(list(range(10)), weight=0)
+        self.grid_rowconfigure((0, 1, 2), weight=1)
          # create scrollable frame
         self.scrollable_frame = ScrollableRadiobuttonConfigFrame(self,label_text="item config")
-        self.scrollable_frame.grid(row=0, column=3, padx=(20, 0), pady=(20, 0), sticky="nsew")
+        self.scrollable_frame.grid(row=0, column=3,rowspan=2, padx=(20, 0), pady=(10, 0), sticky="nsew")
         
         # create scrollable radiobutton frame
         func = lambda x :self.scrollable_frame.set_selected(x)
@@ -346,23 +366,20 @@ class App(customtkinter.CTk):
         self.sidebar_button_2 = customtkinter.CTkButton(self.sidebar_frame,text="Disconnect")
         self.sidebar_button_2.configure(command = self.disconnect_callback)
         self.sidebar_button_2.grid(row=2, column=0, padx=20, pady=10)
-        #add slider button
-        self.sidebar_button_3 = customtkinter.CTkButton(self.sidebar_frame,text="add item")
-        self.sidebar_button_3.configure(command = self.scrollable_radiobutton_frame.add_item)
-        self.sidebar_button_3.grid(row=3, column=0, padx=20, pady=10)
+        
+        #empty row here
+
         #save Profile button
         self.sidebar_button_4 = customtkinter.CTkButton(self.sidebar_frame,text="Save Profile")
         self.sidebar_button_4.configure(command = self.save_profile_callback)
-        self.sidebar_button_4.grid(row=4, column=0, padx=20, pady=10)
+        self.sidebar_button_4.grid(row=5, column=0, padx=20, pady=10)
         #load Profile button
         self.sidebar_button_5 = customtkinter.CTkButton(self.sidebar_frame,text="Load Profile")
         self.sidebar_button_5.configure(command = self.load_profile_callback)
-        self.sidebar_button_5.grid(row=5, column=0, padx=20, pady=10)
-        #clear terminal button
-        self.sidebar_button_6 = customtkinter.CTkButton(self.sidebar_frame,text="Clear terminal")
-        self.sidebar_button_6.configure(command = self.clear_textbox)
-        self.sidebar_button_6.grid(row=6, column=0, padx=20, pady=10)
-        
+        self.sidebar_button_5.grid(row=4, column=0, padx=20, pady=10)
+
+        #empty row here
+
         # create COM Option menu
         self.COM_label = customtkinter.CTkLabel(self.sidebar_frame, text="COM port", anchor="w")
         self.COM_label.grid(row=7, column=0, padx=20, pady=(10, 0))
@@ -418,20 +435,10 @@ class App(customtkinter.CTk):
         self.textbox.configure(
              font=custom_font, state="disabled" ,wrap="word"
         )
+
+        # set terminal colors and tags
         self.configure_terminal_colors(timestamp="#9E9E9E",outgoing="#A3BDCB",incoming="#2FD34A",info="#ebd13b",error="#cc0000")
 
-        # self.configure_terminal_colors(timestamp="#DE935F",outgoing="#81A2BE",incoming="#F0C674")
-        # self.textbox.tag_config("timestamp", foreground="#DE935F")   
-        # self.textbox.tag_config("outgoing", foreground="#81A2BE")
-        # self.textbox.tag_config("incoming", foreground="#F0C674")
-        
-        # self.textbox.tag_config("warning", foreground="#CC6666")
-        def on_read(x):
-            self.show_message(x.strip(),tag="incoming")
-
-
-        self.backend_interface.on_read = on_read
-       
         # create main entry and button
         self.entry_var = customtkinter.StringVar(value="yahoo-55;")
         self.entry = customtkinter.CTkEntry(self, placeholder_text="CTkEntry",textvariable=self.entry_var)
@@ -444,16 +451,40 @@ class App(customtkinter.CTk):
         def send_cmd():
             self.send_message(self.entry_var.get())
 
+        def on_read(x):
+            self.show_message(x.strip(),tag="incoming")
+
+       
         self.main_button_1.configure(command = send_cmd )
 
-        self.backend_interface.on_error = lambda e: self.show_message(e)
+        self.backend_interface.on_read = on_read
+        self.backend_interface.on_error = lambda e: self.show_message(e,"error")
         self.backend_interface.on_close = lambda e: self.show_message(e)
         self.backend_interface.on_connected = lambda : self.show_message("Connected","info")
         self.backend_interface.on_disconnected = lambda : self.show_message("Disonnected","info")
-        self.backend_interface.on_error = lambda e : self.show_message("Connection Lost","error")
+        # self.backend_interface.on_error = lambda e : self.show_message("Connection Lost","error")
 
         
-
+        # create actionButtonsframe
+        self.actionButtons_frame = customtkinter.CTkScrollableFrame(self,label_text="action buttons")
+        self.actionButtons_frame.grid_columnconfigure([0],weight=1)
+        self.actionButtons_frame.grid(row=2, column=3, padx=(20, 0), pady=(20, 0), sticky="nsew")
+        #add slider button
+        self.add_slider_button = customtkinter.CTkButton(self.actionButtons_frame,text="add item")
+        self.add_slider_button.configure(command = self.scrollable_radiobutton_frame.add_item)
+        self.add_slider_button.grid(row=0, column=0, padx=20, pady=10,sticky='nswe')
+        #send all button
+        self.clear_items_button = customtkinter.CTkButton(self.actionButtons_frame,text="send all items")
+        self.clear_items_button.configure(command = self.send_all_callback)
+        self.clear_items_button.grid(row=1, column=0, padx=20, pady=10,sticky='nswe')
+        #clear items button
+        self.clear_items_button = customtkinter.CTkButton(self.actionButtons_frame,text="clear Items")
+        self.clear_items_button.configure(command = self.clear_items_callback)
+        self.clear_items_button.grid(row=2, column=0, padx=20, pady=10,sticky='nswe')
+        #clear terminal button
+        self.clear_terminal_button = customtkinter.CTkButton(self.actionButtons_frame,text="Clear terminal")
+        self.clear_terminal_button.configure(command = self.clear_textbox)
+        self.clear_terminal_button.grid(row=10, column=0, padx=20, pady=10,sticky='nswe')
 
         
         # for i in range(100):
@@ -463,6 +494,21 @@ class App(customtkinter.CTk):
 
         # self.test_button = customtkinter.CTkButton(master=self, fg_color="transparent", border_width=2, text_color=("gray10", "#DCE4EE"))
         # self.test_button.grid(row=0, column=3, padx=(20, 20), pady=(20, 20), sticky="nsew")
+    def send_all_callback(self):
+        s = self.scrollable_radiobutton_frame.get()
+        cmd = ''
+        for k in s:
+            cmd+=s[k].get_cmd()
+        if cmd:
+            self.send_message(cmd)
+
+    def clear_items_callback(self):
+        s = self.scrollable_radiobutton_frame.get()
+        self.scrollable_radiobutton_frame.counter = 0
+        keys = list(s.keys())
+        for k in keys:
+            s[k].destroy()
+            
     def save_profile_callback(self):
         data = {"items":[]}
         s = self.scrollable_radiobutton_frame.get()
